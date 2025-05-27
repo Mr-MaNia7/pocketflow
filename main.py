@@ -2,25 +2,53 @@ import os
 from dotenv import load_dotenv
 from flow import create_research_flow, create_batch_research_flow
 import yaml
+from utils.logger import research_logger as logger
+import time
 
 # Load environment variables
 load_dotenv()
 
 def main():
-    # Example research query
+    # Initialize shared store
     shared = {
-        "query": "Analyze the impact of quantum computing on modern cryptography",
-        "results": {}
+        "query": "Analyze the impact of AI on healthcare in the last 5 years",
+        "research_results": [],
+        "analysis_results": [],
+        "visualization_results": [],
+        "report_results": [],
+        "code_execution_results": [],
+        "validation_results": None
     }
-    
+
     # Create and run the flow
-    research_flow = create_research_flow()
-    research_flow.run(shared)
+    flow = create_research_flow()
     
-    # Print results
-    print("\nFinal Research Report:")
-    print("=====================")
-    print(yaml.dump(shared["final_report"], default_flow_style=False))
+    try:
+        start_time = time.time()
+        logger.log_step("Main", "start", "Starting research flow", shared["query"])
+        
+        flow.run(shared)
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        # Log completion
+        logger.log_completion({
+            "query": shared["query"],
+            "duration": duration,
+            "results": {
+                "research": len(shared["research_results"]),
+                "code_execution": len(shared["code_execution_results"]),
+                "analysis": len(shared["analysis_results"]),
+                "visualization": len(shared["visualization_results"]),
+                "report": len(shared["report_results"])
+            },
+            "final_validation": shared["validation_results"]
+        })
+        
+    except Exception as e:
+        logger.log_error("Main", e, "Research flow failed")
+        raise
 
 def batch_main():
     # Example batch of research queries

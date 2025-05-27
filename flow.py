@@ -5,7 +5,8 @@ from nodes import (
     DataAnalysisNode,
     VisualizationNode,
     ReporterNode,
-    SupervisorNode
+    SupervisorNode,
+    CodeExecutorNode
 )
 
 def create_research_flow():
@@ -14,6 +15,7 @@ def create_research_flow():
     # Create nodes
     planner = PlannerNode()
     web_research = WebResearchNode()
+    code_executor = CodeExecutorNode()
     data_analysis = DataAnalysisNode()
     visualization = VisualizationNode()
     reporter = ReporterNode()
@@ -22,7 +24,9 @@ def create_research_flow():
     # Connect nodes
     planner >> web_research
     web_research - "default" >> web_research  # Continue with next task
-    web_research - "next" >> data_analysis
+    web_research - "next" >> code_executor
+    code_executor - "default" >> code_executor  # Continue with next task
+    code_executor - "next" >> data_analysis
     data_analysis >> visualization >> reporter >> supervisor
     
     # Add revision path
