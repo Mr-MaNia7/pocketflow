@@ -1,0 +1,34 @@
+This project is about building a sophisticated AI-powered research and analysis system with the following key components:
+
+1. **Core Purpose**:
+
+- It's designed to handle complex research queries (like analyzing quantum computing's impact on cybersecurity)
+- The system breaks down these complex tasks into smaller, manageable steps
+- It combines multiple AI agents to perform different aspects of the research
+
+2. **Main Components**:
+
+- A planner node that decomposes complex queries
+- Specialized agent nodes for:
+  - Web research
+  - Data analysis
+  - Visualization
+  - Code execution
+  - Reporter
+  - Supervisor
+- Human-in-the-loop (HITL) validation
+- Tool integrations for web search, code execution, and visualization
+
+3. **Example Workflow**:
+   The system follows a specific flow for research tasks:
+1. User submits complex research query through the Next.js frontend
+1. Planner node decomposes query into subtasks using LangGraph
+1. Web research agent gathers relevant information from multiple sources
+1. Data analysis agent processes and synthesizes gathered information
+1. Visualization agent creates charts and diagrams using integrated tools
+1. Code execution agent develops and runs relevant algorithms
+1. Human-in-the-loop validation reviews and approves results
+1. Reporter agent generates final comprehensive output
+1. Supervisor agent monitors overall workflow progress
+
+The project appears to be a system that combines AI agents with human oversight to perform complex research and analysis tasks, with a particular focus on making the process transparent and interactive through a modern web interface.
