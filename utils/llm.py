@@ -2,12 +2,13 @@ import os
 from openai import OpenAI
 from anthropic import Anthropic
 import logging
+from google import genai
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def call_llm(prompt, model="gpt-4", provider="openai"):
+def call_llm(prompt, model="gpt-3.5-turbo", provider="openai"):
     """
     Call the specified LLM provider with the given prompt.
     
@@ -39,7 +40,14 @@ def call_llm(prompt, model="gpt-4", provider="openai"):
                 max_tokens=1000
             )
             result = response.content
-            
+        elif provider == "google":
+            client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt
+            )
+            result = response.text
+
         else:
             raise ValueError(f"Unsupported provider: {provider}")
         

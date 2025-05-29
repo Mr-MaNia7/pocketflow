@@ -21,8 +21,8 @@ This project is about building a sophisticated AI-powered research and analysis 
 
 3. **Example Workflow**:
    The system follows a specific flow for research tasks:
-1. User submits complex research query through the Next.js frontend
-1. Planner node decomposes query into subtasks using LangGraph
+1. User submits complex research query
+1. Planner node decomposes query into subtasks using pocketflow
 1. Web research agent gathers relevant information from multiple sources
 1. Data analysis agent processes and synthesizes gathered information
 1. Visualization agent creates charts and diagrams using integrated tools

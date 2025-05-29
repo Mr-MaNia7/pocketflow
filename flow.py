@@ -3,34 +3,45 @@ from nodes import (
     PlannerNode,
     WebResearchNode,
     DataAnalysisNode,
-    VisualizationNode,
     ReporterNode,
     SupervisorNode,
     CodeExecutorNode
 )
 
 def create_research_flow():
-    """Create and return the research analysis flow."""
+    """Create and return the research analysis flow with supervisor oversight."""
     
     # Create nodes
     planner = PlannerNode()
     web_research = WebResearchNode()
-    code_executor = CodeExecutorNode()
     data_analysis = DataAnalysisNode()
-    visualization = VisualizationNode()
+    code_executor = CodeExecutorNode()
     reporter = ReporterNode()
     supervisor = SupervisorNode()
     
-    # Connect nodes
-    planner >> web_research
-    web_research - "default" >> web_research  # Continue with next task
-    web_research - "next" >> code_executor
-    code_executor - "default" >> code_executor  # Continue with next task
-    code_executor - "next" >> data_analysis
-    data_analysis >> visualization >> reporter >> supervisor
+    # Connect nodes with supervisor oversight
+    # Initial planning
+    planner >> supervisor
     
-    # Add revision path
+    # Research phase
+    supervisor - "research" >> web_research
+    web_research >> supervisor
+    
+    # Analysis phase
+    supervisor - "analyze" >> data_analysis
+    data_analysis >> supervisor
+    
+    # Code execution phase (if needed)
+    supervisor - "execute_code" >> code_executor
+    code_executor >> supervisor
+    
+    # Final reporting
+    supervisor - "report" >> reporter
+    reporter >> supervisor
+    
+    # Revision paths
     supervisor - "needs_revision" >> planner
+    supervisor - "complete" >> None  # End the flow
     
     # Create flow starting with planner
     return Flow(start=planner)
