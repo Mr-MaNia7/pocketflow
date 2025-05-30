@@ -5,6 +5,11 @@ from utils.llm import call_llm
 from utils.logger import research_logger as logger
 from utils.web_search import search_web_firecrawl
 from utils.code_executor import execute_and_upload
+from prompts.planner import PLANNER_PROMPT
+from prompts.data_analysis import DATA_ANALYSIS_PROMPT
+from prompts.code_executor import CODE_EXECUTION_PROMPT
+from prompts.reporter import REPORTER_PROMPT
+from prompts.supervisor import CODE_EXECUTION_NEEDS_PROMPT, VALIDATION_PROMPT
 
 
 class PlannerNode(Node):
@@ -15,7 +20,7 @@ class PlannerNode(Node):
 
     def exec(self, query):
         logger.log_step("Planner", "exec", "Decomposing query into tasks")
-        prompt = f
+        prompt = PLANNER_PROMPT.format(query=query)
         response = call_llm(prompt)
 
         try:
@@ -141,75 +146,7 @@ class DataAnalysisNode(Node):
 
     def exec(self, research_results):
         # First, extract and structure the data
-        prompt = f"""
-        Analyze these research results and extract structured data. Return the following YAML with both qualitative and quantitative analysis (if possible):
-
-        Research Results: {research_results}
-
-        ```yaml
-        analysis:
-          key_findings:
-            - <finding 1>
-            - <finding 2>
-          implications:
-            - <implication 1>
-            - <implication 2>
-          
-          metrics:
-            - name: <metric name>
-              value: <numeric value>
-              unit: <unit of measurement>
-              source: <where this metric came from>
-              confidence: <0-1>
-          
-          categories:
-            - name: <category name>
-              items:
-                - name: <item name>
-                  count: <number of occurrences>
-                  percentage: <percentage of total>
-          
-          time_series:
-            - year: <year>
-              metrics:
-                - name: <metric name>
-                  value: <value>
-          
-          relationships:
-            - from: <entity 1>
-              to: <entity 2>
-              type: <relationship type>
-              strength: <0-1>
-          
-          data_quality:
-            completeness: <0-1>
-            reliability: <0-1>
-            sources_used: <number>
-          
-          visualizations:
-            - type: <chart type>
-              data_source: <which data to use>
-              purpose: <what it shows>
-              priority: <1-5>
-          
-          next_steps:
-            - <suggested next step 1>
-            - <suggested next step 2>
-        ```
-
-        Rules:
-        1. `analysis` is required while the rest of the fields are optional.
-        2. Extract ALL possible numerical and/or qualitative data from the research
-        3. Create categories where patterns emerge
-        4. Identify time-based trends if present
-        5. Note relationships between entities
-        6. Assess data quality
-        7. Recommend appropriate visualizations
-        8. Only include sections where data is available
-        9. Use consistent units and formats
-        10. Strictly follow the provided YAML structure
-        11. Do not add any additional text or explanations outside the YAML
-        """
+        prompt = DATA_ANALYSIS_PROMPT.format(research_results=research_results)
         response = call_llm(prompt, model="gemini-1.5-flash", provider="google")
         yaml_str = response.split("```yaml")[1].split("```")[0].strip()
         analysis = yaml.safe_load(yaml_str)
@@ -265,35 +202,10 @@ class CodeExecutorNode(Node):
 
         code_requirements = task["parameters"].get("code_requirements", [])
 
-        prompt = f"""
-        Generate Python code to satisfy these requirements:
-        Requirements: {code_requirements}
-        Context from analysis: {analysis}
-        
-        You MUST return ONLY the following YAML structure, with no additional text or explanations:
-        ```yaml
-        code: |
-            # Your Python code here
-            # Must be valid Python code
-            # Must include proper imports
-            # Must save ALL visualizations to temp_dir using plt.savefig()
-            # Example: plt.savefig(os.path.join(temp_dir, 'visualization.png'))
-            # Must set 'output' variable with the result
-        explanation: |
-            Brief explanation of what the code does
-        visualization_type: |
-            Type of visualization if applicable, or 'none'
-        ```
-        
-        Rules:
-        1. Return ONLY the YAML structure above
-        2. Do not add any text before or after the YAML
-        3. The code must be valid Python code
-        4. The code must save ALL visualizations to temp_dir using plt.savefig()
-        5. The code must set an 'output' variable
-        6. Keep the exact same indentation (2 spaces)
-        7. Do not modify the structure or add/remove fields
-        """
+        prompt = CODE_EXECUTION_PROMPT.format(
+            code_requirements=code_requirements, analysis=analysis
+        )
+
         response = call_llm(
             prompt, model="claude-3-5-sonnet-20240620", provider="anthropic"
         )
@@ -412,37 +324,10 @@ class ReporterNode(Node):
                     if "sources" in result:
                         sources.extend(result["sources"])
 
-        prompt = f"""
-        Generate a comprehensive research report based on:
-        Analysis: {data['analysis']}
-        Code Execution Results: {data['code_results']}
-        Web Research: {data['web_research']}
-        Visualization URLs: {visualization_urls}
-        Sources: {sources}
-        
-        Format the report in YAML:
-        ```yaml
-        report:
-          executive_summary: |
-            <summary>
-          detailed_findings:
-            - <finding 1>
-            - <finding 2>
-          recommendations:
-            - <recommendation 1>
-            - <recommendation 2>
-          visualizations:
-            - url: <visualization_url>
-              description: <description of what the visualization shows>
-              type: <type of visualization>
-          sources:
-            - url: <source_url>
-              description: <brief description of the source>
-          next_steps:
-            - <next step 1>
-            - <next step 2>
-        ```
-        """
+        prompt = REPORTER_PROMPT.format(
+            visualization_urls=visualization_urls,
+            sources=sources,
+        )
         response = call_llm(prompt, model="gemini-1.5-flash", provider="google")
         yaml_str = response.split("```yaml")[1].split("```")[0].strip()
         report = yaml.safe_load(yaml_str)
@@ -471,18 +356,7 @@ class SupervisorNode(Node):
     def exec(self, data):
         # If we have a final report, validate it
         if data["final_report"]:
-            prompt = f"""
-            Review this research report and determine if it meets quality standards:
-            {data['final_report']}
-            
-            Return your decision in YAML format:
-            ```yaml
-            decision:
-              approved: true/false
-              feedback: <feedback if not approved>
-              confidence: <0-1>
-            ```
-            """
+            prompt = VALIDATION_PROMPT.format(final_report=data["final_report"])
             response = call_llm(prompt)
             yaml_str = response.split("```yaml")[1].split("```")[0].strip()
             decision = yaml.safe_load(yaml_str)
@@ -548,17 +422,7 @@ class SupervisorNode(Node):
                 return {"action": "execute_code"}
 
             # Check for other code execution needs
-            prompt = f"""
-            Based on the analysis results, determine if code execution is needed for data processing or other tasks:
-            {analysis}
-            
-            Return your decision in YAML format:
-            ```yaml
-            decision:
-              needs_code: true/false
-              reason: <explanation>
-            ```
-            """
+            prompt = CODE_EXECUTION_NEEDS_PROMPT.format(analysis=analysis)
             response = call_llm(prompt)
             yaml_str = response.split("```yaml")[1].split("```")[0].strip()
             decision = yaml.safe_load(yaml_str)
