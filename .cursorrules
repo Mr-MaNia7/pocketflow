@@ -39,6 +39,7 @@ Agentic Coding should be a collaboration between Human System Design and Agent I
      - If using **Agent**, specify what are the inputs (context) and what are the possible actions.
      - If using **RAG**, specify what to embed, noting that there's usually both offline (indexing) and online (retrieval) workflows.
    - Outline the flow and draw it in a mermaid diagram. For example:
+
      ```mermaid
      flowchart LR
          start[Start] --> batch[Batch]
@@ -53,6 +54,7 @@ Agentic Coding should be a collaboration between Human System Design and Agent I
 
          process --> endNode[End]
      ```
+
    - > **If Humans can't specify the flow, AI Agents can't automate it!** Before building an LLM system, thoroughly understand the problem and potential solution by manually solving example inputs to develop intuition.  
      > {: .best-practice }
 
