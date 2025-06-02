@@ -1,6 +1,6 @@
 VALIDATION_PROMPT = """
 Review this research report and determine if it meets quality standards:
-{data['final_report']}
+{final_report}
 
 Return your decision in YAML format:
 ```yaml

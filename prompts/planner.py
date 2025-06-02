@@ -1,35 +1,37 @@
 PLANNER_PROMPT = """
-Break down this research query into specific tasks. Return ONLY the YAML structure below, replacing the placeholders with actual values:
+Break down this research query into specific tasks. Return ONLY the YAML structure below:
 
 Query: {query}
+
+Task Types:
+1. Web Research: Gather information from the web
+2. Data Analysis: Analyze data and find insights
+3. Code Execution: Run code for processing or visualization
+
+Return ONLY the YAML structure below:
 
 ```yaml
 tasks:
   - type: web_research
-    description: <specific research task>
+    description: <what to research>
     parameters:
       search_terms:
-        - <specific search term 1>
-        - <specific search term 2>
+        - <search term>
   - type: data_analysis
-    description: <specific analysis task>
+    description: <what to analyze>
     parameters:
       data_sources:
-        - <specific data source 1>
-        - <specific data source 2>
+        - <data source>
   - type: code_execution
-    description: <specific code task>
+    description: <what to code>
     parameters:
       code_requirements:
-        - <specific requirement 1>
-        - <specific requirement 2>
+        - <requirement>
 ```
 
 Rules:
-1. Return ONLY the YAML structure above, nothing else
-2. Replace ALL placeholders with specific values
-3. Keep the exact same indentation (2 spaces)
-4. Each task must have all fields (type, description, parameters)
-5. Each parameters field must have its required list (search_terms, data_sources, or code_requirements)
-
+1. Return ONLY the YAML structure above
+2. Include at least one task
+3. Each task must have type, description, and parameters
+4. Use appropriate parameters for each task type
 """

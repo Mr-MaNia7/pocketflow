@@ -7,6 +7,7 @@ import seaborn as sns
 import numpy as np
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -35,9 +36,19 @@ def execute_visualization_code(code: str) -> Dict[str, Any]:
     try:
         # Create a temporary directory for storing generated files
         temp_dir = tempfile.mkdtemp()
+        os.makedirs(temp_dir, exist_ok=True)  # Ensure directory exists
 
         # Create a new namespace for execution
-        namespace = {"plt": plt, "sns": sns, "np": np, "temp_dir": temp_dir, "os": os}
+        namespace = {
+            "plt": plt,
+            "sns": sns,
+            "pd": pd,
+            "np": np,
+            "os": os,
+            "tempfile": tempfile,
+            "uuid": uuid,
+            "temp_dir": temp_dir,
+        }
 
         # Execute the code
         exec(code, namespace)
@@ -45,7 +56,7 @@ def execute_visualization_code(code: str) -> Dict[str, Any]:
         # Get all generated files
         generated_files = []
         for file in os.listdir(temp_dir):
-            if file.endswith((".png", ".jpg", ".jpeg", ".svg")):
+            if file.endswith((".png", ".jpg", ".jpeg", ".svg", ".pdf")):
                 file_path = os.path.join(temp_dir, file)
                 generated_files.append(file_path)
 
@@ -120,52 +131,61 @@ def upload_to_supabase(
         return {"success": True, "url": url, "error": None}
 
     except Exception as e:
+        print(f"File path: {file_path}")
+        print(f"File exists: {os.path.exists(file_path)}")
+        print(
+            f"File size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}"
+        )
         return {"success": False, "url": None, "error": str(e)}
 
 
-def execute_and_upload(code: str, metadata: Optional[Dict] = None) -> Dict[str, Any]:
-    """
-    Execute visualization code and upload generated files to Supabase.
-
-    Args:
-        code (str): Python code to execute
-        metadata (Dict, optional): Additional metadata to store with the files
-
-    Returns:
-        Dict containing:
-            - success (bool): Whether the entire process was successful
-            - urls (list): List of public URLs for uploaded files
-            - error (str): Error message if any step failed
-    """
-    # Execute the code
-    execution_result = execute_visualization_code(code)
-
-    if not execution_result["success"]:
-        return {"success": False, "urls": [], "error": execution_result["error"]}
-
+def execute_and_upload(code: str, metadata: dict) -> dict:
+    """Execute visualization code and upload generated files to Supabase."""
+    temp_dir = None
     try:
+        # Execute the code and get the result
+        result = execute_visualization_code(code)
+        temp_dir = result.get("temp_dir")
+
+        if not result["success"]:
+            return {
+                "success": False,
+                "error": result["error"],
+                "output": result["output"],
+            }
+
         # Upload each generated file
-        uploaded_urls = []
-        for file_path in execution_result["file_paths"]:
-            upload_result = upload_to_supabase(file_path, metadata)
-            if upload_result["success"]:
-                uploaded_urls.append(upload_result["url"])
-            else:
-                return {
-                    "success": False,
-                    "urls": uploaded_urls,
-                    "error": f"Failed to upload {file_path}: {upload_result['error']}",
-                }
+        urls = []
+        for file_path in result["file_paths"]:
+            if os.path.exists(file_path):
+                # Upload to Supabase
+                upload_result = upload_to_supabase(file_path, metadata)
+                if upload_result["success"]:
+                    urls.append(upload_result["url"])
+                else:
+                    print(f"Failed to upload {file_path}: {upload_result['error']}")
 
-        return {"success": True, "urls": uploaded_urls, "error": None}
+        if not urls:
+            return {
+                "success": False,
+                "error": "No files were successfully uploaded",
+                "output": result["output"],
+            }
+
+        return {"success": True, "urls": urls, "output": result["output"]}
+
+    except Exception as e:
+        print(f"Error in execute_and_upload: {str(e)}")
+        return {"success": False, "error": str(e), "output": None}
     finally:
-        # Clean up the temporary directory
-        if execution_result["temp_dir"] and os.path.exists(
-            execution_result["temp_dir"]
-        ):
-            import shutil
+        # Only clean up temp directory if we're not in a test environment
+        if temp_dir and os.getenv("TESTING") != "true":
+            try:
+                import shutil
 
-            shutil.rmtree(execution_result["temp_dir"])
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                print(f"Error cleaning up temp directory: {str(e)}")
 
 
 if __name__ == "__main__":

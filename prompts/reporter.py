@@ -1,8 +1,8 @@
 REPORTER_PROMPT = """
 Generate a comprehensive research report based on:
-Analysis: {data['analysis']}
-Code Execution Results: {data['code_results']}
-Web Research: {data['web_research']}
+Analysis: {analysis}
+Code Execution Results: {code_results}
+Web Research: {web_research}
 Visualization URLs: {visualization_urls}
 Sources: {sources}
 

@@ -4,6 +4,8 @@ from utils.llm import call_llm
 from utils.logger import research_logger as logger
 from utils.web_search import search_web_firecrawl
 from utils.code_executor import execute_and_upload
+from utils.task_validator import TaskValidator
+from utils.task_history import TaskHistory
 from prompts.planner import PLANNER_PROMPT
 from prompts.data_analysis import DATA_ANALYSIS_PROMPT
 from prompts.code_executor import CODE_EXECUTION_PROMPT
@@ -14,44 +16,64 @@ from prompts.supervisor import CODE_EXECUTION_NEEDS_PROMPT, VALIDATION_PROMPT
 class PlannerNode(Node):
     """Decomposes complex research queries into subtasks."""
 
-    def prep(self, shared):
-        return shared["query"]
+    def __init__(self, max_retries=3, wait=10):
+        """Initialize planner with task history and validator."""
+        super().__init__(max_retries=max_retries, wait=wait)
+        self.task_history = TaskHistory()
+        self.task_validator = TaskValidator()
 
-    def exec(self, query):
+    def prep(self, shared):
+        """Prepare for task planning by gathering context."""
+        query = shared["query"]
+
+        # Get similar queries from history
+        similar_queries = self.task_history.get_similar_queries(query)
+
+        # Get successful task templates
+        task_templates = self.task_history.get_task_templates()
+
+        # Get task metrics
+        metrics = self.task_history.get_task_metrics()
+
+        return {
+            "query": query,
+            "similar_queries": similar_queries,
+            "task_templates": task_templates,
+            "metrics": metrics,
+        }
+
+    def exec(self, context):
+        """Execute task planning with validation."""
         logger.log_step("Planner", "exec", "Decomposing query into tasks")
-        prompt = PLANNER_PROMPT.format(query=query)
+
+        # Format prompt with context
+        prompt = PLANNER_PROMPT.format(
+            query=context["query"],
+            similar_queries=context["similar_queries"],
+            task_templates=context["task_templates"],
+            metrics=context["metrics"],
+        )
+
         response = call_llm(prompt)
 
         try:
             # Extract YAML from response
             yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+
+            # Validate tasks
+            validation_result = self.task_validator.validate_tasks(yaml_str)
+            if not validation_result["is_valid"]:
+                logger.log_step(
+                    "Planner",
+                    "exec",
+                    "Task validation failed",
+                    validation_result["errors"],
+                )
+                raise ValueError(
+                    "Task validation failed: " + "\n".join(validation_result["errors"])
+                )
+
             tasks = yaml.safe_load(yaml_str)
-
-            # Basic validation
-            if not isinstance(tasks, dict) or "tasks" not in tasks:
-                raise ValueError("Invalid YAML structure: missing 'tasks' key")
-            if not isinstance(tasks["tasks"], list):
-                raise ValueError("Invalid YAML structure: 'tasks' must be a list")
-
-            # Validate each task
-            for task in tasks["tasks"]:
-                if not isinstance(task, dict):
-                    raise ValueError("Each task must be a dictionary")
-                if (
-                    "type" not in task
-                    or "description" not in task
-                    or "parameters" not in task
-                ):
-                    raise ValueError(
-                        "Each task must have type, description, and parameters"
-                    )
-                if task["type"] not in [
-                    "web_research",
-                    "data_analysis",
-                    "code_execution",
-                ]:
-                    raise ValueError(f"Invalid task type: {task['type']}")
-
             logger.log_step("Planner", "exec", "Successfully decomposed tasks", tasks)
             return tasks
 
@@ -65,9 +87,20 @@ class PlannerNode(Node):
             raise
 
     def post(self, shared, prep_res, exec_res):
+        """Store tasks and update history."""
         shared["tasks"] = exec_res["tasks"]
         shared["current_task"] = exec_res["tasks"][0]
         shared["remaining_tasks"] = exec_res["tasks"][1:]
+
+        # Add to task history
+        self.task_history.add_execution(
+            query=prep_res["query"],
+            tasks=exec_res["tasks"],
+            execution_results=[],  # Will be populated as tasks complete
+            success=False,  # Will be updated by supervisor
+            feedback=None,
+        )
+
         return "default"
 
 
@@ -251,7 +284,13 @@ class CodeExecutorNode(Node):
 
             if not execution_result.get("success", False):
                 error_msg = execution_result.get("error", "Unknown error")
+                logger.log_error("CodeExecutor", error_msg, "Code execution failed")
                 raise Exception(f"Code execution failed: {error_msg}")
+
+            # Verify URLs are accessible
+            urls = execution_result.get("urls", [])
+            if not urls:
+                raise Exception("No visualization URLs were generated")
 
             logger.log_step(
                 "CodeExecutor",
@@ -259,7 +298,7 @@ class CodeExecutorNode(Node):
                 "Code execution completed",
                 {
                     "status": execution_result["success"],
-                    "output": execution_result.get("urls", []),
+                    "output": urls,
                     "error": execution_result.get("error"),
                 },
             )
@@ -269,7 +308,7 @@ class CodeExecutorNode(Node):
                 "code": result["code"],
                 "explanation": result.get("explanation", ""),
                 "visualization_type": result.get("visualization_type", "none"),
-                "visualization_urls": execution_result.get("urls", []),
+                "visualization_urls": urls,
                 "output": execution_result.get(
                     "output", "Visualization generated and uploaded successfully"
                 ),
@@ -324,15 +363,51 @@ class ReporterNode(Node):
                         sources.extend(result["sources"])
 
         prompt = REPORTER_PROMPT.format(
+            analysis=data["analysis"],
+            code_results=data["code_results"],
+            web_research=data["web_research"],
             visualization_urls=visualization_urls,
             sources=sources,
         )
         response = call_llm(prompt, model="gemini-1.5-flash", provider="google")
-        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
-        report = yaml.safe_load(yaml_str)
 
-        logger.log_step("Reporter", "exec", "Report generated", report)
-        return report
+        try:
+            # Extract YAML from response
+            if "```yaml" in response:
+                yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+            else:
+                yaml_str = response.strip()
+
+            # Clean up the YAML string
+            yaml_str = yaml_str.replace("\\n", "\n")  # Replace escaped newlines
+            yaml_str = yaml_str.replace("\\", "")  # Remove any remaining backslashes
+            yaml_str = yaml_str.replace("...", "")  # Remove YAML document end markers
+            yaml_str = yaml_str.replace("---", "")  # Remove YAML document start markers
+
+            # Ensure the YAML has the correct structure
+            if not yaml_str.startswith("report:"):
+                yaml_str = "report:\n" + yaml_str
+
+            report = yaml.safe_load(yaml_str)
+
+            # Validate the report structure
+            if not isinstance(report, dict) or "report" not in report:
+                raise ValueError("Invalid report structure: missing 'report' key")
+
+            logger.log_step("Reporter", "exec", "Report generated", report)
+            return report["report"]  # Return just the report content
+
+        except Exception as e:
+            logger.log_error("Reporter", e, "Failed to parse report YAML")
+            # Return a basic report structure if YAML parsing fails
+            return {
+                "executive_summary": "Error generating report",
+                "detailed_findings": [],
+                "recommendations": [],
+                "visualizations": [],
+                "sources": [],
+                "next_steps": [],
+            }
 
     def post(self, shared, prep_res, exec_res):
         shared["final_report"] = exec_res
@@ -341,6 +416,11 @@ class ReporterNode(Node):
 
 class SupervisorNode(Node):
     """Monitors and validates the overall workflow."""
+
+    def __init__(self, max_retries=3, wait=10):
+        """Initialize supervisor with task history."""
+        super().__init__(max_retries=max_retries, wait=wait)
+        self.task_history = TaskHistory()
 
     def prep(self, shared):
         return {
@@ -416,6 +496,13 @@ class SupervisorNode(Node):
                                 "Ensure visualizations are clear and informative",
                             ]
                         },
+                        "template": "Visualization",
+                        "success_criteria": [
+                            "All required visualizations are generated",
+                            "Visualizations are clear and properly labeled",
+                            "Data is accurately represented",
+                        ],
+                        "required_tools": ["matplotlib", "seaborn", "plotly"],
                     }
                     return {"action": "execute_code", "task": code_task}
                 return {"action": "execute_code"}
@@ -449,6 +536,14 @@ class SupervisorNode(Node):
                                 "Include appropriate documentation",
                             ]
                         },
+                        "template": "Algorithm Implementation",
+                        "success_criteria": [
+                            "Code successfully processes the data",
+                            "All requirements are implemented",
+                            "Error handling is in place",
+                            "Documentation is clear and complete",
+                        ],
+                        "required_tools": ["pandas", "numpy", "scikit-learn"],
                     }
                     return {"action": "execute_code", "task": code_task}
                 return {"action": "execute_code"}
@@ -481,6 +576,29 @@ class SupervisorNode(Node):
 
     def post(self, shared, prep_res, exec_res):
         action = exec_res["action"]
+
+        # Update task history with execution results
+        if action in ["complete", "needs_revision"]:
+            # Get all execution results
+            execution_results = []
+            if shared.get("web_research_results"):
+                execution_results.extend(shared["web_research_results"])
+            if shared.get("analysis_results"):
+                execution_results.append(shared["analysis_results"])
+            if shared.get("code_execution_results"):
+                execution_results.extend(shared["code_execution_results"])
+
+            # Update history with success/failure
+            success = action == "complete"
+            feedback = exec_res.get("feedback") if action == "needs_revision" else None
+
+            self.task_history.add_execution(
+                query=shared["query"],
+                tasks=shared["tasks"],
+                execution_results=execution_results,
+                success=success,
+                feedback=feedback,
+            )
 
         # Handle task creation for code execution
         if action == "execute_code" and "task" in exec_res:
